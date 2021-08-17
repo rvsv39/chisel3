@@ -63,7 +63,6 @@ object DataMirror {
 
   // This API provides a util to trace name.
   object trace {
-    case class TapNotFoundError(message: String) extends ChiselException(message)
     case class TraceNameAnnotation[T <: CompleteTarget](target: T, hash: T) extends SingleTargetAnnotation[T] {
       // rename map only update target, hash is to used to match via the view API.
       def duplicate(n: T): Annotation = this.copy(target = n)
@@ -83,11 +82,9 @@ object DataMirror {
       }
      }
     /** API to view final target of a [[Data]] */
-    def view(x: HasId, annos: AnnotationSeq): Target =
-      annos.collectFirst {
+    def view(x: HasId, annos: AnnotationSeq): Seq[Target] =
+      annos.collect {
         case TraceNameAnnotation(t, hash) if x.toTarget.toString == hash.toString => t
-      }.getOrElse(
-        throw TapNotFoundError(s"${x.toTarget} is not found in:\n ${annos.collect{case a: TraceNameAnnotation[_] => a}.mkString("\n")}")
-      )
+      }
   }
 }

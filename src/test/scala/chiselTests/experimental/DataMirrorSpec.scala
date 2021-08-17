@@ -11,6 +11,7 @@ class DataMirrorSpec extends ChiselFlatSpec with Matchers {
   class Bundle0 extends Bundle {
     val a = UInt(8.W)
     val b = Bool()
+    val c = Enum0.Type
   }
 
   class Bundle1 extends Bundle {
@@ -23,6 +24,7 @@ class DataMirrorSpec extends ChiselFlatSpec with Matchers {
     val o = IO(Output(new Bundle1))
     val r = Reg(new Bundle1)
     chisel3.experimental.DataMirror.trace.tap(r)
+    chisel3.experimental.DataMirror.trace.tap(i)
     o := r
     r := i
     dontTouch(r)
@@ -46,9 +48,11 @@ class DataMirrorSpec extends ChiselFlatSpec with Matchers {
       )
     )
     val dut = annos.collectFirst { case DesignAnnotation(dut) => dut }.get.asInstanceOf[Module1]
-    // out of Build.
-    val rTarget = chisel3.experimental.DataMirror.trace.view(dut.m0.r.a.a, annos)
-    rTarget.toString should be ("~Module1|Module0>r_a_a")
+    // out of Builder.
+    val oneTarget = chisel3.experimental.DataMirror.trace.view(dut.m0.r.a.a, annos)
+    val ioTarget = chisel3.experimental.DataMirror.trace.view(dut.m0.i.b(1)(2), annos)
+    oneTarget.head.toString should be ("~Module1|Module0>r_a_a")
+    ioTarget.head.toString should be ("~Module1|Module0>i_b_1_2")
   }
 
 }
