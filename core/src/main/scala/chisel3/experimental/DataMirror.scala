@@ -1,6 +1,9 @@
 package chisel3.experimental
+import chisel3.internal.{ChiselException, HasId}
 import chisel3.internal.firrtl.Width
-import chisel3.{ActualDirection, Data, Element, Record, SpecifiedDirection, Vec}
+import chisel3.{ActualDirection, Aggregate, Data, Element, Module, Record, SpecifiedDirection, Vec, dontTouch}
+import firrtl.AnnotationSeq
+import firrtl.annotations.{Annotation, CompleteTarget, IsMember, ReferenceTarget, SingleTargetAnnotation, Target}
 
 /** Experimental hardware construction reflection API
   */
@@ -56,5 +59,35 @@ object DataMirror {
     def chiselTypeClone[T <: Data](target: Data): T = {
       target.cloneTypeFull.asInstanceOf[T]
     }
+  }
+
+  // This API provides a util to trace name.
+  object trace {
+    case class TapNotFoundError(message: String) extends ChiselException(message)
+    case class TraceNameAnnotation[T <: CompleteTarget](target: T, hash: T) extends SingleTargetAnnotation[T] {
+      // rename map only update target, hash is to used to match via the view API.
+      def duplicate(n: T): Annotation = this.copy(target = n)
+    }
+    def tap(x: Module): Unit = {
+      new ChiselAnnotation { def toFirrtl: Annotation = TraceNameAnnotation(x.toTarget, x.toTarget) }
+    }
+    def tap(x: Data): Unit = {
+      x match {
+        case aggregate: Aggregate =>
+          annotate(new ChiselAnnotation {
+            def toFirrtl: Annotation = TraceNameAnnotation(aggregate.toTarget, aggregate.toTarget)
+          })
+          aggregate.getElements.foreach(tap)
+        case element: Element =>
+          annotate(new ChiselAnnotation { def toFirrtl: Annotation = TraceNameAnnotation(element.toTarget, element.toTarget) })
+      }
+     }
+    /** API to view final target of a [[Data]] */
+    def view(x: HasId, annos: AnnotationSeq): Target =
+      annos.collectFirst {
+        case TraceNameAnnotation(t, hash) if x.toTarget.toString == hash.toString => t
+      }.getOrElse(
+        throw TapNotFoundError(s"${x.toTarget} is not found in:\n ${annos.collect{case a: TraceNameAnnotation[_] => a}.mkString("\n")}")
+      )
   }
 }
