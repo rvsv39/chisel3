@@ -1,9 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package chisel3.experimental
-import chisel3.internal.{ChiselException, HasId}
+import chisel3.internal.HasId
 import chisel3.internal.firrtl.Width
-import chisel3.{ActualDirection, Aggregate, Data, Element, Module, Record, SpecifiedDirection, Vec, dontTouch}
+import chisel3.{ActualDirection, Aggregate, Data, Element, Module, Record, SpecifiedDirection, Vec}
 import firrtl.AnnotationSeq
-import firrtl.annotations.{Annotation, CompleteTarget, IsMember, ReferenceTarget, SingleTargetAnnotation, Target}
+import firrtl.annotations.{Annotation, CompleteTarget, SingleTargetAnnotation}
 
 /** Experimental hardware construction reflection API
   */
@@ -63,28 +65,33 @@ object DataMirror {
 
   // This API provides a util to trace name.
   object trace {
-    case class TraceNameAnnotation[T <: CompleteTarget](target: T, hash: T) extends SingleTargetAnnotation[T] {
+    case class TraceNameAnnotation[T <: CompleteTarget](target: T, chiselTarget: T)
+        extends SingleTargetAnnotation[T]
+        with HasChiselTarget[T] {
       // rename map only update target, hash is to used to match via the view API.
       def duplicate(n: T): Annotation = this.copy(target = n)
     }
-    def tap(x: Module): Unit = {
+    def traceName(x: Module): Unit = {
       new ChiselAnnotation { def toFirrtl: Annotation = TraceNameAnnotation(x.toTarget, x.toTarget) }
     }
-    def tap(x: Data): Unit = {
+    def traceName(x: Data): Unit = {
       x match {
         case aggregate: Aggregate =>
           annotate(new ChiselAnnotation {
             def toFirrtl: Annotation = TraceNameAnnotation(aggregate.toTarget, aggregate.toTarget)
           })
-          aggregate.getElements.foreach(tap)
+          aggregate.getElements.foreach(traceName)
         case element: Element =>
           annotate(new ChiselAnnotation { def toFirrtl: Annotation = TraceNameAnnotation(element.toTarget, element.toTarget) })
       }
      }
+
     /** API to view final target of a [[Data]] */
-    def view(x: HasId, annos: AnnotationSeq): Seq[Target] =
-      annos.collect {
+    implicit class TraceFromAnnotations(annos: AnnotationSeq) {
+      def finalTarget(x: HasId): Seq[CompleteTarget] = annos.collect {
         case TraceNameAnnotation(t, hash) if x.toTarget.toString == hash.toString => t
       }
+      def finalName(x: HasId): Seq[String] = finalTarget(x).map(_.toString)
+    }
   }
 }
