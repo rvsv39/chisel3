@@ -78,19 +78,22 @@ object DataMirror {
       x match {
         case aggregate: Aggregate =>
           annotate(new ChiselAnnotation {
-            def toFirrtl: Annotation = TraceNameAnnotation(aggregate.toTarget, aggregate.toTarget)
+            def toFirrtl: Annotation = TraceNameAnnotation(aggregate.toAbsoluteTarget, aggregate.toAbsoluteTarget)
           })
           aggregate.getElements.foreach(traceName)
         case element: Element =>
-          annotate(new ChiselAnnotation { def toFirrtl: Annotation = TraceNameAnnotation(element.toTarget, element.toTarget) })
+          annotate(new ChiselAnnotation { def toFirrtl: Annotation = TraceNameAnnotation(element.toAbsoluteTarget, element.toAbsoluteTarget) })
       }
      }
 
     /** API to view final target of a [[Data]] */
     implicit class TraceFromAnnotations(annos: AnnotationSeq) {
-      def finalTarget(x: HasId): Seq[CompleteTarget] = annos.collect {
-        case TraceNameAnnotation(t, hash) if x.toTarget.toString == hash.toString => t
+      def finalTargetMap: Seq[(CompleteTarget, CompleteTarget)] = annos.collect {
+        case TraceNameAnnotation(t, chiselTarget) => chiselTarget -> t
       }
+      def finalTarget(x: HasId): Seq[CompleteTarget] = finalTargetMap.filter{
+        case (k, _) => x.toAbsoluteTarget == k
+      }.map(_._2)
       def finalName(x: HasId): Seq[String] = finalTarget(x).map(_.toString)
     }
   }
