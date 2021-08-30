@@ -52,7 +52,9 @@ class DataMirrorSpec extends ChiselFlatSpec with Matchers {
   }
 
   "TraceFromAnnotations" should "be able to get nested name." in {
-    val annos = (new ChiselStage).run(
+    val testDir = os.Path(createTestDirectory("TraceFromAnnotations").getAbsolutePath)
+    val annos = (new ChiselStage).execute(
+      Array("--target-dir", s"$testDir"),
       Seq(
         ChiselGeneratorAnnotation(() => new Module1)
       )
@@ -64,29 +66,27 @@ class DataMirrorSpec extends ChiselFlatSpec with Matchers {
     val oneTarget = annos.finalTarget(dut.m0.r.a.a)
     val ioTarget = annos.finalTarget(dut.m0.i.b(1)(2))
 
+    val topName = "Module1"
     oneTarget.head should be(
       ReferenceTarget(
-      "Module1",
-      "Module1",
-      List((Instance("m0"), OfModule("Module0"))),
-      "r_a_a",
-      List()
-    ))
-    pprint.pprintln(ioTarget.head)
+        topName,
+        topName,
+        List((Instance("m0"), OfModule("Module0"))),
+        "r_a_a",
+        List()
+      ))
 
     ioTarget.head should be(
       ReferenceTarget(
-        "Module1",
-        "Module1",
+        topName,
+        topName,
         List((Instance("m0"), OfModule("Module0"))),
         "i_b_1_2",
         List()
       )
     )
 
-    val symbolTable = annos.finalTargetMap
     // Below codes doesn't needs to be a FIRRTL Transform.
-    @nowarn("msg=match may not be exhaustive")
     def generateVerilatorConfigFile(data: Seq[Data], annos: AnnotationSeq): String =
       """`verilator_config
         |lint_off -rule unused
@@ -96,81 +96,75 @@ class DataMirrorSpec extends ChiselFlatSpec with Matchers {
           .flatMap(annos.finalTarget)
           .toSet
           .map { target: CompleteTarget =>
-            s"""public_flat_rd -module "${target.moduleOpt.get}" -var "${target.tokens.map { case Ref(r) => r }
-              .mkString(".")}""""
+            s"""public_flat_rd -module "${target.tokens.collectFirst { case OfModule(m) => m }.get}" -var "${target.tokens.collectFirst { case Ref(r) => r }.get}""""
           }
           .mkString("\n") + "\n"
 
     def verilatorTemplate(data: Seq[Data], annos: AnnotationSeq): String = {
-      symbolTable.map(_._2.path).foreach(println)
-      """
-        |#include "VModule1.h"
-        |#include "verilated_vpi.h"
-        |#include <memory>
-        |#include <verilated.h>
-        |
-        |int vpiGetInt(const char name[]) {
-        |  // TODO Check name here.
-        |  vpiHandle vh1 = vpi_handle_by_name((PLI_BYTE8 *)name, NULL);
-        |  if (!vh1)
-        |    vl_fatal(__FILE__, __LINE__, "sim_main", "No handle found");
-        |  s_vpi_value v;
-        |  v.format = vpiIntVal;
-        |  vpi_get_value(vh1, &v);
-        |  return v.value.integer;
-        |}
-        |int main(int argc, char **argv) {
-        |  const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
-        |  contextp->commandArgs(argc, argv);
-        |  const std::unique_ptr<VModule1> top{new VModule1{contextp.get(), "TOP"}};
-        |  top->reset = 0;
-        |  top->clock = 0;
-        |  int a_b = 1;
-        |  top->i_a_b = a_b;
-        |  bool started = false;
-        |  int ticks = 20;
-        |  while (ticks--) {
-        |    contextp->timeInc(1);
-        |    top->clock = !top->clock;
-        |    if (!top->clock) {
-        |      if (contextp->time() > 1 && contextp->time() < 10) {
-        |        top->reset = 1;
-        |      } else {
-        |        top->reset = 0;
-        |        started = true;
-        |      }
-        |      a_b = a_b ? 0 : 1;
-        |      top->i_a_b = a_b;
-        |    }
-        |    top->eval();
-        |    VerilatedVpi::callValueCbs();
-        |    if (started && !top->clock) {
-        |      const int i = top->i_a_b;
-        |      const int o = vpiGetInt("TOP.Module1.m0.o_a_b");
-        |      if (i == o)
-        |        goto bad_end;
-        |      printf("Module1.i_a_b=%d Module1.m0.o_a_b=%d\n", i, o);
-        |    }
-        |  }
-        |  top->final();
-        |  return 0;
-        |bad_end:
-        |  puts("Module1.m0.o_a_b should be the old value of Module1.i_a_b");
-        |  top->final();
-        |  return 1;
-        |}
-        |
-        |
-        |""".stripMargin
+      val vpiNames = data.flatMap(annos.finalTarget).map { ct =>
+        s"""TOP.${ct.circuit}.${ct.path.map { case (Instance(i), _) => i }.mkString(".")}.${ct.tokens.collectFirst { case Ref(r) => r }.get}"""
+      }
+      s"""
+         |#include "V${topName}.h"
+         |#include "verilated_vpi.h"
+         |#include <memory>
+         |#include <verilated.h>
+         |
+         |int vpiGetInt(const char name[]) {
+         |  // TODO Check name here.
+         |  vpiHandle vh1 = vpi_handle_by_name((PLI_BYTE8 *)name, NULL);
+         |  if (!vh1)
+         |    vl_fatal(__FILE__, __LINE__, "sim_main", "No handle found");
+         |  s_vpi_value v;
+         |  v.format = vpiIntVal;
+         |  vpi_get_value(vh1, &v);
+         |  return v.value.integer;
+         |}
+         |
+         |int main(int argc, char **argv) {
+         |  const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
+         |  contextp->commandArgs(argc, argv);
+         |  const std::unique_ptr<V$topName> top{new V$topName{contextp.get(), "TOP"}};
+         |  top->reset = 0;
+         |  top->clock = 0;
+         |  int a_b = 1;
+         |  top->i_a_b = a_b;
+         |  bool started = false;
+         |  int ticks = 20;
+         |  while (ticks--) {
+         |    contextp->timeInc(1);
+         |    top->clock = !top->clock;
+         |    if (!top->clock) {
+         |      if (contextp->time() > 1 && contextp->time() < 10) {
+         |        top->reset = 1;
+         |      } else {
+         |        top->reset = 0;
+         |        started = true;
+         |      }
+         |      a_b = a_b ? 0 : 1;
+         |      top->i_a_b = a_b;
+         |    }
+         |    top->eval();
+         |    VerilatedVpi::callValueCbs();
+         |    if (started && !top->clock) {
+         |      const int i = top->i_a_b;
+         |      const int o = vpiGetInt("${vpiNames.head}");
+         |      if (i == o)
+         |        vl_fatal(__FILE__, __LINE__, "sim_main", "${vpiNames.head} should be the old value of Module1.i_a_b");
+         |      printf("${vpiNames.head}=%d Module1.m0.o_a_b=%d\\n", i, o);
+         |    }
+         |  }
+         |  top->final();
+         |  return 0;
+         |}
+         |""".stripMargin
     }
 
-    val config = os.temp()
-    val verilog = os.pwd / "Module1.v"
-    val cpp = os.temp(suffix = ".cpp")
-    val exe = os.pwd / "obj_dir" / "VModule1"
-    os.write.over(config, generateVerilatorConfigFile(Seq(dut.m0.o.a.b), annos))
-    os.write.over(cpp, verilatorTemplate(Seq(dut.m0.o.a.b), annos))
-    os.proc("verilator", "-Wall", "--cc", "--exe", "--build", "--vpi", s"$cpp", s"$verilog", s"$config").call(stdout = os.Inherit, stderr = os.Inherit)
+    val config = os.temp(dir = testDir, contents = generateVerilatorConfigFile(Seq(dut.m0.o.a.b), annos))
+    val verilog = testDir / s"$topName.v"
+    val cpp = os.temp(dir = testDir, suffix = ".cpp", contents = verilatorTemplate(Seq(dut.m0.o.a.b), annos))
+    val exe = testDir / "obj_dir" / s"V$topName"
+    os.proc("verilator", "-Wall", "--cc", "--exe", "--build", "--vpi", s"$cpp", s"$verilog", s"$config").call(stdout = os.Inherit, stderr = os.Inherit, cwd = testDir)
     assert(os.proc(s"$exe").call(stdout = os.Inherit, stderr = os.Inherit).exitCode == 0, "verilator should exit peacefully")
   }
 
