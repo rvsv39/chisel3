@@ -6,6 +6,7 @@ import chisel3.internal.firrtl.Width
 import chisel3.{ActualDirection, Aggregate, Data, Element, Module, Record, SpecifiedDirection, Vec}
 import firrtl.AnnotationSeq
 import firrtl.annotations.{Annotation, CompleteTarget, SingleTargetAnnotation}
+import firrtl.transforms.DontTouchAnnotation
 
 /** Experimental hardware construction reflection API
   */
@@ -80,9 +81,11 @@ object DataMirror {
           annotate(new ChiselAnnotation {
             def toFirrtl: Annotation = TraceNameAnnotation(aggregate.toAbsoluteTarget, aggregate.toAbsoluteTarget)
           })
+          annotate(new ChiselAnnotation { def toFirrtl = DontTouchAnnotation(aggregate.toTarget) })
           aggregate.getElements.foreach(traceName)
         case element: Element =>
           annotate(new ChiselAnnotation { def toFirrtl: Annotation = TraceNameAnnotation(element.toAbsoluteTarget, element.toAbsoluteTarget) })
+          annotate(new ChiselAnnotation { def toFirrtl = DontTouchAnnotation(element.toTarget) })
       }
      }
 
